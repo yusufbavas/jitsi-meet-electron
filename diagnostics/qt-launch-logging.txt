@@ -1,0 +1,48 @@
+Qt tarafında yalnız ek loglama
+
+Mevcut finished bağlantısında kullanılmayan ExitStatus parametresine isim verip
+ilk satıra log ekleyin. Diğer davranış aynı kalır:
+
+QObject::connect(m_jitsi.get(), &QProcess::finished, this,
+                 [this](int exitCode, QProcess::ExitStatus exitStatus) {
+    qInfo() << "IPCWorkerEventVKS: jitsi finished"
+            << "exitCode=" << exitCode
+            << "exitStatus=" << (exitStatus == QProcess::CrashExit ? "CrashExit" : "NormalExit");
+    setConferenceActive(false);
+    emit jitsiFinished(exitCode);
+});
+
+Mevcut errorOccurred bağlantısında da hata türünü kaydedin:
+
+QObject::connect(m_jitsi.get(), &QProcess::errorOccurred, this,
+                 [this](QProcess::ProcessError error) {
+    qWarning() << "IPCWorkerEventVKS: jitsi error"
+               << "type=" << static_cast<int>(error)
+               << "detail=" << (m_jitsi ? m_jitsi->errorString() : QString());
+    if (!jitsiRunning())
+        setConferenceActive(false);
+    emit jitsiFailed(m_jitsi ? m_jitsi->errorString() : QString());
+});
+
+ROOM_URL değerini açıkça yazan qInfo satırını şu şekilde değiştirin:
+
+qInfo() << "IPCWorkerEventVKS: jitsi-meet başlatılıyor"
+        << "program=" << m_jitsiProgram
+        << "roomConfigured=" << !roomUrl.isEmpty();
+
+waitForStarted(5000) başarılı olduktan sonra, setConferenceActive(true) öncesine:
+
+qInfo() << "IPCWorkerEventVKS: jitsi started" << "pid=" << m_jitsi->processId();
+
+Bu ekler QProcess'in argümanlarını, ortamını, zaman aşımını veya sahipliğini
+değiştirmez. waitForStarted işletim sistemi sürecinin başlamasını bekler;
+Electron penceresinin veya toplantı sayfasının hazır olmasını beklemez.
+
+CrashExit + exitCode11, incelenen Qt Unix uygulamalarında SIGSEGV karşılığıdır.
+NormalExit + exitCode11, normal çıkış mekanizmasıyla dönen koddur.
+m_jitsiProgram arada başka bir başlatıcı çalıştırıyorsa izlenen süreç o olabilir.
+
+Qt proje dosyaları bu çalışma alanında bulunmadığı için bu parça doğrudan
+Qt projesine uygulanmadı ve derlenmedi. Electron uygulamasındaki yeni kayıtlar
+Qt değişikliği olmadan da çalışır. Bu ek, özellikle Electron JavaScript'i
+başlamadan önceki kapanmalar için Qt'nin gördüğü son durumu korur.
