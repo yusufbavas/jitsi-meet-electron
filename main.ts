@@ -1,7 +1,3 @@
-// Start local crash capture before evaluating the SDK and other dependencies.
-// eslint-disable-next-line import/order
-import { diagnostics } from './app/diagnostics/main';
-
 import {
     getPopupTarget,
     initPopupsConfigurationMain,
@@ -10,7 +6,6 @@ import {
     setupRemoteControlMain,
     setupScreenSharingMain
 } from '@jitsi/electron-sdk/main';
-import * as crypto from 'crypto';
 import {
     BrowserWindow,
     Menu,
@@ -26,16 +21,15 @@ import log from 'electron-log';
 import electronReload from 'electron-reload';
 import { autoUpdater } from 'electron-updater';
 import windowStateKeeper from 'electron-window-state';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as URL from 'url';
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 import config from './app/features/config';
 import { openExternalLink } from './app/features/utils/openExternalLink';
 import { t } from './app/i18n/main';
 import pkgJson from './package.json';
-
-diagnostics.stage('main.imports-loaded');
 
 // This file is bundled to ./build/main.js, so under esbuild __dirname is the
 // build/ directory and its parent is the application root holding build/ and
@@ -330,25 +324,19 @@ function setApplicationMenu() {
  * Opens new window with index.html(Jitsi Meet is loaded in iframe there).
  */
 function createJitsiMeetWindow() {
-    diagnostics.stage('launcher.create.begin');
     // Application menu.
     setApplicationMenu();
 
     // Check for Updates.
     if (!process.mas) {
-        diagnostics.stage('updater.check.begin');
         autoUpdater.checkForUpdatesAndNotify();
-        diagnostics.stage('updater.check.dispatched');
     }
 
     // Load the previous window state with fallback to defaults.
-    diagnostics.stage('launcher.window-state.begin');
     const windowState = windowStateKeeper({
         defaultHeight: 600,
         fullScreen: false
     });
-
-    diagnostics.stage('launcher.window-state.end');
 
     // Path to root directory.
     const basePath = isDev ? rootDir : app.getAppPath();
@@ -388,14 +376,9 @@ function createJitsiMeetWindow() {
         }
     };
 
-    diagnostics.stage('launcher.browser-window.begin');
     mainWindow = new BrowserWindow(options);
-    diagnostics.observeWindow(mainWindow, 'launcher');
-    diagnostics.stage('launcher.browser-window.end');
     windowState.manage(mainWindow);
-    diagnostics.stage('launcher.load.begin');
     mainWindow.loadURL(indexURL);
-    diagnostics.stage('launcher.load.dispatched');
 
     if (zoomFactor !== 1.0) {
         mainWindow.webContents.on('did-finish-load', () => {
@@ -495,7 +478,6 @@ function createJitsiMeetWindow() {
     mainWindow.once('ready-to-show', () => {
         const initialUrl = getProtocolUrl(process.argv);
 
-        diagnostics.record('launcher.show-decision', { hasInitialRoom: Boolean(initialUrl) });
         if (!initialUrl) {
             mainWindow?.show();
         }
@@ -510,10 +492,12 @@ function createJitsiMeetWindow() {
 }
 
 function getProtocolUrl(argv: string[]): string | undefined {
+    console.log('process.env.ROOM_URL', process.env.ROOM_URL);
     if (process.env.ROOM_URL) {
         return process.env.ROOM_URL;
     }
 
+    console.log('argv', argv);
     const roomUrlArg = argv.find(arg => arg.startsWith('--room-url='));
 
     if (roomUrlArg) {
@@ -621,16 +605,11 @@ function prepareSingleInstanceProfile(): void {
  * Force Single Instance Application.
  * Handle this on darwin via LSMultipleInstancesProhibited in Info.plist as below does not work on MAS
  */
-diagnostics.stage('profile.prepare.begin');
 prepareSingleInstanceProfile();
-diagnostics.stage('profile.prepare.end');
 
-diagnostics.stage('single-instance-lock.begin');
 const gotInstanceLock = process.platform === 'darwin' ? true : app.requestSingleInstanceLock();
 
-diagnostics.record('single-instance-lock.result', { acquired: gotInstanceLock });
 if (!gotInstanceLock) {
-    diagnostics.record('quit.requested', { source: 'single-instance-lock' });
     app.quit();
     process.exit(0);
 }
@@ -651,7 +630,6 @@ app.on('certificate-error',
         if (isDev || process.env.IGNORE_CERTIFICATE_ERRORS === 'true' || process.argv.includes('--ignore-certificate-errors')) {
             event.preventDefault();
             callback(true);
-
             return;
         }
 
@@ -659,7 +637,6 @@ app.on('certificate-error',
             try {
                 const caCert = new crypto.X509Certificate(fs.readFileSync(process.env.MTLS_CA_CERT));
                 let serverCert;
-
                 // 'certificate.data' might be a PEM string or a DER buffer depending on the Electron version
                 if (typeof certificate.data === 'string' && !certificate.data.includes('-----BEGIN CERTIFICATE-----')) {
                     // Fallback if it's actually DER data as a string (legacy)
@@ -671,7 +648,6 @@ app.on('certificate-error',
                 if (serverCert.verify(caCert.publicKey)) {
                     event.preventDefault();
                     callback(true);
-
                     return;
                 }
             } catch (e) {
@@ -720,14 +696,11 @@ app.on('browser-window-created', (_, win) => {
 });
 
 app.on('ready', () => {
-    diagnostics.stage('app.ready-handler');
     if (process.env.MTLS_CLIENT_CERT) {
-        diagnostics.record('client-certificate.import.begin');
         app.importCertificate({
             certificate: process.env.MTLS_CLIENT_CERT,
             password: process.env.MTLS_CLIENT_PASS || ''
-        }, result => {
-            diagnostics.record('client-certificate.import.result', { result });
+        }, (result) => {
             if (result === 0) {
                 console.log('Successfully imported client certificate.');
             } else {
@@ -766,7 +739,6 @@ app.on('second-instance', (event, commandLine) => {
 });
 
 app.on('window-all-closed', () => {
-    diagnostics.record('quit.requested', { source: 'window-all-closed' });
     app.quit();
 });
 
@@ -801,7 +773,6 @@ app.on('open-url', (event, data) => {
  * Called by BOTH the launcher and the meeting window on componentDidMount.
  */
 ipcMain.on('renderer-ready', event => {
-    diagnostics.record('renderer.ready-ipc', { webContentsId: event.sender.id });
     // Launcher window — existing behaviour unchanged.
     if (mainWindow && event.sender.id === mainWindow.webContents.id) {
         rendererReady = true;
@@ -2434,7 +2405,6 @@ function injectIframeCustomizations(): void {
     try {
         const targetFrames = meetingWindow.webContents.mainFrame.framesInSubtree
             || meetingWindow.webContents.mainFrame.frames;
-
         targetFrames.forEach(frame => {
             if (frame !== meetingWindow?.webContents.mainFrame) {
                 frame.executeJavaScript(code)
@@ -2461,10 +2431,6 @@ ipcMain.on('conference-frame-ready', () => {
  * Otherwise create a new one.
  */
 ipcMain.on('open-meeting-window', (event, conference) => {
-    diagnostics.record('meeting.open-request', {
-        existingWindow: Boolean(meetingWindow),
-        senderId: event.sender.id
-    });
     if (meetingWindow) {
         meetingWindow.focus();
         meetingWindow.webContents.send('navigate-to-conference', conference);
@@ -2475,9 +2441,7 @@ ipcMain.on('open-meeting-window', (event, conference) => {
 
     const basePath = isDev ? rootDir : app.getAppPath();
 
-    diagnostics.stage('meeting.protocol.begin');
     registerMeetingProtocol(basePath);
-    diagnostics.stage('meeting.protocol.end');
 
     const meetingURL = `${MEETING_SCHEME}://${MEETING_HOST}/meeting.html`;
 
@@ -2499,7 +2463,6 @@ ipcMain.on('open-meeting-window', (event, conference) => {
 
     const zoomFactor = getZoomFactor();
 
-    diagnostics.stage('meeting.browser-window.begin');
     meetingWindow = new BrowserWindow({
         width: 1200,
         height: 800,
@@ -2519,11 +2482,7 @@ ipcMain.on('open-meeting-window', (event, conference) => {
         }
     });
 
-    diagnostics.observeWindow(meetingWindow, 'meeting');
-    diagnostics.stage('meeting.browser-window.end');
-    diagnostics.stage('meeting.load.begin');
     meetingWindow.loadURL(meetingURL);
-    diagnostics.stage('meeting.load.dispatched');
 
     if (zoomFactor !== 1.0) {
         meetingWindow.webContents.on('did-finish-load', () => {
@@ -2555,26 +2514,15 @@ ipcMain.on('open-meeting-window', (event, conference) => {
     });
 
     meetingWindow.webContents.once('did-finish-load', () => {
-        diagnostics.record('meeting.navigate-ipc');
         meetingWindow?.webContents.send('navigate-to-conference', conference);
     });
 
     // SDK setup — these need the window that hosts the conference iframe.
-    diagnostics.stage('sdk.popups.begin');
     initPopupsConfigurationMain(meetingWindow, windowOpenHandler);
-    diagnostics.stage('sdk.popups.end');
-    diagnostics.stage('sdk.picture-in-picture.begin');
     setupPictureInPictureMain(meetingWindow);
-    diagnostics.stage('sdk.picture-in-picture.end');
-    diagnostics.stage('sdk.power-monitor.begin');
     setupPowerMonitorMain(meetingWindow);
-    diagnostics.stage('sdk.power-monitor.end');
-    diagnostics.stage('sdk.screen-sharing.begin');
     setupScreenSharingMain(meetingWindow, config.appName, pkgJson.build.appId);
-    diagnostics.stage('sdk.screen-sharing.end');
-    diagnostics.stage('sdk.remote-control.begin');
     setupRemoteControlMain(meetingWindow, { requestConsent: requestRemoteControlConsent });
-    diagnostics.stage('sdk.remote-control.end');
 
     // Block redirects — same protection as the launcher window.
     meetingWindow.webContents.addListener('will-redirect', (ev, url) => {
@@ -2591,13 +2539,11 @@ ipcMain.on('open-meeting-window', (event, conference) => {
     meetingWindow.on('closed', () => {
         meetingWindow = null;
         if (mainWindow && !mainWindow.isVisible()) {
-            diagnostics.record('launcher.close-request', { source: 'meeting-closed' });
             mainWindow.close();
         }
     });
 
     meetingWindow.once('ready-to-show', () => {
-        diagnostics.record('meeting.show-request');
         meetingWindow?.show();
         setTimeout(() => meetingWindow?.maximize(), 100);
     });
@@ -2606,8 +2552,7 @@ ipcMain.on('open-meeting-window', (event, conference) => {
 /**
  * Close the meeting window — called by renderer when End Call is clicked.
  */
-ipcMain.on('close-meeting-window', event => {
-    diagnostics.record('meeting.close-request', { source: 'renderer-ipc', senderId: event.sender.id });
+ipcMain.on('close-meeting-window', () => {
     if (meetingWindow) {
         meetingWindow.close();
     }
