@@ -12,7 +12,11 @@ const whitelistedIpcChannels = [
     'open-meeting-window',
     'close-meeting-window',
     'navigate-to-conference',
-    'conference-frame-ready'
+    'conference-frame-ready',
+    'mini-pip-action',
+    'mini-pip-state',
+    'mini-pip-state-request',
+    'mini-pip-dispose'
 ];
 
 ipcRenderer.setMaxListeners(0);

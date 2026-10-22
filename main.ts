@@ -1,7 +1,6 @@
 import {
     getPopupTarget,
     initPopupsConfigurationMain,
-    setupPictureInPictureMain,
     setupPowerMonitorMain,
     setupRemoteControlMain,
     setupScreenSharingMain
@@ -29,6 +28,8 @@ import * as crypto from 'crypto';
 import config from './app/features/config';
 import { openExternalLink } from './app/features/utils/openExternalLink';
 import { t } from './app/i18n/main';
+import { getMiniPipFrameCode } from './app/pip/frame';
+import { MiniPipController } from './app/pip/main';
 import pkgJson from './package.json';
 
 // This file is bundled to ./build/main.js, so under esbuild __dirname is the
@@ -769,6 +770,18 @@ app.on('open-url', (event, data) => {
 });
 
 /**
+ * Accept app commands only from a window's main renderer, never a video popup.
+ *
+ * @param {Electron.IpcMainEvent} event - The incoming app command.
+ * @param {BrowserWindow|null} window - The expected app window.
+ * @returns {boolean}
+ */
+function isWindowSender(event: Electron.IpcMainEvent, window: BrowserWindow | null): boolean {
+    return Boolean(window && !window.isDestroyed()
+        && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame);
+}
+
+/**
  * This is to notify main.js [this] that front app is ready to receive messages.
  * Called by BOTH the launcher and the meeting window on componentDidMount.
  */
@@ -792,14 +805,16 @@ ipcMain.on('renderer-ready', event => {
  * Handle opening external links in the main process.
  */
 ipcMain.on('jitsi-open-url', (event, someUrl) => {
-    openExternalLink(someUrl);
+    if (isWindowSender(event, mainWindow) || isWindowSender(event, meetingWindow)) {
+        openExternalLink(someUrl);
+    }
 });
 
 /**
  * Restore the meeting window (e.g. from PiP).
  */
-ipcMain.on('restore-meeting-window', () => {
-    if (meetingWindow) {
+ipcMain.on('restore-meeting-window', event => {
+    if (isWindowSender(event, meetingWindow) && meetingWindow) {
         if (meetingWindow.isMinimized()) {
             meetingWindow.restore();
         }
@@ -2400,7 +2415,7 @@ function injectIframeCustomizations(): void {
         return;
     }
 
-    const code = `${getTouchSupportCode()}\n${getInjectionCode()}`;
+    const code = `${getMiniPipFrameCode()}\n${getTouchSupportCode()}\n${getInjectionCode()}`;
 
     try {
         const targetFrames = meetingWindow.webContents.mainFrame.framesInSubtree
@@ -2421,8 +2436,10 @@ function injectIframeCustomizations(): void {
     }
 }
 
-ipcMain.on('conference-frame-ready', () => {
-    injectIframeCustomizations();
+ipcMain.on('conference-frame-ready', event => {
+    if (isWindowSender(event, meetingWindow)) {
+        injectIframeCustomizations();
+    }
 });
 
 /**
@@ -2431,6 +2448,9 @@ ipcMain.on('conference-frame-ready', () => {
  * Otherwise create a new one.
  */
 ipcMain.on('open-meeting-window', (event, conference) => {
+    if (!isWindowSender(event, mainWindow) && !isWindowSender(event, meetingWindow)) {
+        return;
+    }
     if (meetingWindow) {
         meetingWindow.focus();
         meetingWindow.webContents.send('navigate-to-conference', conference);
@@ -2444,22 +2464,6 @@ ipcMain.on('open-meeting-window', (event, conference) => {
     registerMeetingProtocol(basePath);
 
     const meetingURL = `${MEETING_SCHEME}://${MEETING_HOST}/meeting.html`;
-
-    const windowOpenHandler = ({ url, frameName }: { frameName: string; url: string; }) => {
-        const target = getPopupTarget(url, frameName);
-
-        if (!target || target === 'browser') {
-            openExternalLink(url);
-
-            return { action: 'deny' };
-        }
-
-        if (target === 'electron') {
-            return { action: 'allow' };
-        }
-
-        return { action: 'deny' };
-    };
 
     const zoomFactor = getZoomFactor();
 
@@ -2481,6 +2485,30 @@ ipcMain.on('open-meeting-window', (event, conference) => {
             zoomFactor
         }
     });
+
+    const miniPip = new MiniPipController(meetingWindow, path.resolve(basePath, './build/mini-pip-preload.js'));
+
+    const windowOpenHandler = (details: Electron.HandlerDetails): Electron.WindowOpenHandlerResponse => {
+        const miniPipResponse = miniPip.handleWindowOpen(details);
+
+        if (miniPipResponse) {
+            return miniPipResponse;
+        }
+        const { url, frameName } = details;
+        const target = getPopupTarget(url, frameName);
+
+        if (!target || target === 'browser') {
+            openExternalLink(url);
+
+            return { action: 'deny' };
+        }
+
+        if (target === 'electron') {
+            return { action: 'allow' };
+        }
+
+        return { action: 'deny' };
+    };
 
     meetingWindow.loadURL(meetingURL);
 
@@ -2519,7 +2547,6 @@ ipcMain.on('open-meeting-window', (event, conference) => {
 
     // SDK setup — these need the window that hosts the conference iframe.
     initPopupsConfigurationMain(meetingWindow, windowOpenHandler);
-    setupPictureInPictureMain(meetingWindow);
     setupPowerMonitorMain(meetingWindow);
     setupScreenSharingMain(meetingWindow, config.appName, pkgJson.build.appId);
     setupRemoteControlMain(meetingWindow, { requestConsent: requestRemoteControlConsent });
@@ -2552,7 +2579,10 @@ ipcMain.on('open-meeting-window', (event, conference) => {
 /**
  * Close the meeting window — called by renderer when End Call is clicked.
  */
-ipcMain.on('close-meeting-window', () => {
+ipcMain.on('close-meeting-window', event => {
+    if (!isWindowSender(event, meetingWindow)) {
+        return;
+    }
     if (meetingWindow) {
         meetingWindow.close();
     }

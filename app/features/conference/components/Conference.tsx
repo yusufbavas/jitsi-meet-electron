@@ -10,6 +10,7 @@ import { connect } from 'react-redux';
 import { Dispatch } from 'redux';
 
 import i18n from '../../../i18n';
+import { setupMiniPipRenderer } from '../../../pip/renderer';
 import type { IConference, IState } from '../../../types';
 import config from '../../config';
 import { getSetting } from '../../settings';
@@ -52,6 +53,7 @@ class Conference extends Component<IProps, IConferenceState> {
     _api?: JitsiMeetExternalAPI;
     _conference!: { room: string; serverURL: string; };
     _iframeLoaded?: boolean;
+    _disposeMiniPip?: () => void;
 
     /**
      * The toolbar as configured for this meeting, which the screen share button
@@ -127,6 +129,8 @@ class Conference extends Component<IProps, IConferenceState> {
      * @returns {void}
      */
     componentWillUnmount() {
+        this._disposeMiniPip?.();
+        this._disposeMiniPip = undefined;
 
         if (this._api) {
             this._api.dispose();
@@ -346,9 +350,6 @@ class Conference extends Component<IProps, IConferenceState> {
 
         this._api.on('suspendDetected', this._onVideoConferenceEnded);
         this._api.on('readyToClose', this._onVideoConferenceEnded);
-        this._api.on('pipLeft', () => {
-            window.jitsiElectronApp.ipc.send('restore-meeting-window');
-        });
         this._api.on('videoConferenceJoined',
             ({ id }: { id?: string; }) => {
                 this._localParticipantId = id;
@@ -385,6 +386,7 @@ class Conference extends Component<IProps, IConferenceState> {
         initPopupsConfigurationRender(this._api);
         setupScreenSharingRender(this._api);
         if (this.props._alwaysOnTopWindowEnabled) {
+            this._disposeMiniPip = setupMiniPipRenderer(this._api);
             setupPictureInPictureRender(this._api);
         }
         setupPowerMonitorRender(this._api);

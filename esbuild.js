@@ -8,6 +8,7 @@
  * It produces, into ./build:
  *   - main.js     (Electron main process, CommonJS, Node target)
  *   - preload.js  (preload script, CommonJS, Node target)
+ *   - mini-pip-preload.js (restricted bridge for the small video window)
  *   - app.js      (renderer bundle, IIFE, browser target)
  *   - app.css     (renderer styles extracted from imported .css)
  *   - index.html  (launcher window, from app/index.html)
@@ -196,7 +197,8 @@ const configs = {
     preload: {
         ...common,
         entryPoints: {
-            preload: 'app/preload/preload.ts'
+            preload: 'app/preload/preload.ts',
+            'mini-pip-preload': 'app/preload/miniPip.ts'
         },
         outdir: OUTDIR,
         platform: 'node',

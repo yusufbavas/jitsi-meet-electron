@@ -34,8 +34,11 @@ interface ICurrentDevices {
 declare class JitsiMeetExternalAPI {
     constructor(domain: string, options?: any);
     on(event: string, listener: (...args: any[]) => void): void;
+    removeListener(event: string, listener: (...args: any[]) => void): void;
     dispose(): void;
     executeCommand(command: string, ...args: any[]): void;
+    isAudioMuted(): Promise<boolean>;
+    isVideoMuted(): Promise<boolean>;
     getAvailableDevices(): Promise<IAvailableDevices>;
     getCurrentDevices(): Promise<ICurrentDevices>;
 
